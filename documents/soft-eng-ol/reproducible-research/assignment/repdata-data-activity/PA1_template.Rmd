@@ -1,0 +1,198 @@
+> install.packages("knitr", dependencies = TRUE)
+
+> install.packages("data.table", dependencies = TRUE)
+
+> library(knitr)
+> library(data.table)
+data.table 1.9.4  For help type: ?data.table
+*** NB: by=.EACHI is now explicit. See README to restore previous behaviour.
+> library(ggplot2)
+> opts_chunk$set(echo = TRUE, results = 'hold')
+> 
+
+#####LOAD THE REQUIRED DATA#######
+> rdata <- read.csv("activity.csv", header = TRUE, sep = ",", colClass=c("numeric", "character", "numeric"))
+
+TIDY THE DATA OR PREPROCESS THE DATA
+convert the date field to Date class and interval field to Factor class
+> rdata$date <- as.Date(rdata$date, format = "%Y-%m-%d")
+> rdata$interval <- as.factor(rdata$interval)
+Now, let us check the data using str() method:
+>str(rdata)
+'data.frame':   17568 obs. of  3 variables:
+ $ steps   : num  NA NA NA NA NA NA NA NA NA NA ...
+ $ date    : Date, format: "2012-10-01" "2012-10-01" ...
+ $ interval: Factor w/ 288 levels "0","5","10","15",..: 1 2 3 4 5 6 7 8 9 10 ...
+
+
+
+###########WHAT IS MEAN TOTAL NUMBER OF STEPS TAKEN PRE DAY#####################################
+Now we have to ignore the missing values(a valid assumption).
+we proceed by calculating the total steps per day
+> steps_per_day <- aggregate(steps~date, rdata, sum)
+> colnames(steps_per_day) <- c("date", "steps")
+> head(steps_per_day)
+        date steps
+1 2012-10-02   126
+2 2012-10-03 11352
+3 2012-10-04 12116
+4 2012-10-05 13294
+5 2012-10-06 15420
+6 2012-10-07 11015
+Now we make a histogram of the total number of steps taken per day, plotted
+with appropriate bin interval.
+>ggplot(steps_per_day, aes(x=steps))+geom_histogram(fill="green", binwidth=1000)+labs(title="Histogram of Steps Taken per Day", x="Number of Steps per Day", y="Number of Times in a day(Count)")+theme_bw()
+Now we calculate the mean and median of the number of steps taken per day.
+> steps_mean <- mean(steps_per_day$steps, na.rm=TRUE)
+> steps_mean
+[1] 10766.19
+
+
+> steps_median <- median(steps_per_day$steps, na.rm=TRUE)
+> steps_median
+[1] 10765
+
+
+############WHAT IS THE AVERAGE DAILY PATTERN?################################################
+
+We calculate the aggregation of steps by interval of 5-minutes and convert
+the intervals as integers and save them in a data frame called steps_per_interval
+> steps_per_interval <- aggregate(rdata$steps, by = list(interval=rdata$interval), FUN=mean, na.rm=TRUE)
+#convert to integers
+##this helps in plotting
+> steps_per_interval$interval <- as.integer(levels(steps_per_interval$interval)[steps_per_interval$interval])
+> colnames(steps_per_interval) <- c("interval", "steps")
+
+1. we make the plot with the time series of the average number of steps (averaged across all days) versus the 5-minute intervals:
+> ggplot(steps_per_interval, aes(x=interval, y=steps))+geom_line(color="orange", size=1)+labs(title="Average Daily Activity Pattern", x="Interval", y="Number of Steps")+theme_bw()
+
+1. Now we find the 5-minute interval with the containing the maximum number of steps:
+> max_interval <- steps_per_interval[which.max(steps_per_interval$steps),]
+> max_interval
+    interval    steps
+104      835 206.1698
+
+
+#############IMPUTING MISSING VALUES:###############################################################
+1. Total number of missing values:
+the total number of missing values in steps can be calculated using is.na() method to check whether the value
+is missing or not and then summing the logical vector.
+
+> missing_vals <- sum(is.na(rdata$steps))
+> missing_vals
+[1] 2304
+
+2. Strategy for filling in all of the missing values in the dataset
+to populate missing values, we choose to replace them with the mean value at the 
+same interval across days. In most of the cases the median is better centrality
+measures than mean, but in our case the total median is not much far away from
+total mean, and probably we can make the mean and median meets.
+
+We create a function na_fill(data, pervalue) which the data arguments is the rdata
+frame and pervalue argument is the steps_per_interval data frame.
+
+
+na_fill <- function(data, pervalue){
+	na_index <- which(is.na(data$steps))
+	na_replace <- unlist(lapply(na_index, FUN=function(idx){
+		interval = data[idx,]$interval
+	pervalue[pervalue$interval == interval,]$steps
+	}))
+	fill_steps <- data$steps
+	fill_steps[na_index] <- na_replace
+	fill_steps
+}
+
+rdata_fill <- data.frame(
+	steps=na_fill(rdata, steps_per_interval),
+	date = rdata$date,
+	interval = rdata$interval)
+str(rdata_fill)	
+
+
+> source("na_fill.R")
+'data.frame':   17568 obs. of  3 variables:
+ $ steps   : num  1.717 0.3396 0.1321 0.1509 0.0755 ...
+ $ date    : Date, format: "2012-10-01" "2012-10-01" ...
+ $ interval: Factor w/ 288 levels "0","5","10","15",..: 1 2 3 4 5 6 7 8 9 10 ...
+
+
+We check that there are any missing values remaining or not
+> sum(is.na(rdata_fill$steps))
+[1] 0
+zero ouput that there are NO MISSING VALUES
+
+3.A hitogram of the total number of steps taken each day
+now let us plot a histogram fo the daily total number of steps taken, plotted with the bin interval of 1000
+steps, after filling missing values
+
+> fill_steps_per_day <- aggregate(steps~date, rdata_fill, sum)
+> colnames(fll_steps_per_day) <- c("date", "steps")
+Error in colnames(fll_steps_per_day) <- c("date", "steps") : 
+  object 'fll_steps_per_day' not found
+> colnames(fill_steps_per_day) <- c("date", "steps")
+##plotting the histogram
+> ggplot(fill_steps_per_day, aes(x=steps))+geom_histogram(fill="blue", binwidth=1000)+labs(title="Histogram of Steps Taken per Day", x="Number of Steps per Day", y="Number  of Times in a day(Count)")+theme_bw()
+
+#Calculate and report the mean and median total number of steps taken per day
+##a) mean
+> steps_mean_fill <- mean(fill_steps_per_day$steps, na.rm=TRUE)
+> steps_mean_fill
+[1] 10766.19
+##b) median
+> steps_median_fill <- median(fill_steps_per_day$steps, na.rm=TRUE)
+> steps_median_fill
+[1] 10766.19
+
+DO THESE VALUES DIFFER FROM THE ESTIMATES FROM FROM THE FIRST PART OF THE ASSIGNMENT?
+
+##Yes, these values do differ slightly
+	-Before filling the data
+		1. mean: 10766.19
+		2. median: 10765
+	-After filling the data
+		1. mean: 10766.19
+		2. median: 10766.19
+we see that the values after filling the data mean and median are equal
+#WHAT IS THE IMPACT OF INPUTING MISSING DATA ON TE ESTIMATES OF THE TOTAL DAILY NUMBER OF STEPS?
+As you can see, comparing with the calculations done int the first section of this document,
+we observe that while the mean value remains unchanged, the median value has shifted and 
+virtual matches to the mean.
+
+Since our data has shown a t-student distribution (see both histograms), it seems that the impact of imputing
+missing values has increase our peak, but it's not affect negatively our predictions.
+
+
+ARE THERE DIFFERENCES IN ACTIVITY PATTERNS BETWEEN WEEKDAYS AND WEEKENDS?
+We do this comparison with the table with filled-in missing values.
+1. Argument the table with a column that indicates the day of the week
+2. Subset the table into two parts-weekends (Saturday and Sunday) and weekdays (Monday through Friday)
+3. Tabulate the average steps per interval for each data set
+4. Plot the two data sets side by side for comparison
+
+> source("weekdays_steps.R")
+##you can see the panel plot comparing the average number of steps taken per 5-minute
+##interval across weekdays and weekends:
+> ggplot(data_weekdays, aes(x=interval, y=steps))+geom_line(color="violet")+facet_wrap(~dayofweek, nrow=2, ncol=1)+labs(x="Interval", y="Number of Steps")+theme_bw()
+
+##we can see at the graph that activity on the weekday has the greatest peak
+## from all steps intervals. But, we can see too that weekends activities has
+##more peaks over a hundred than weekday. This could be due to the fact that
+##activities on weekdays mostly follow a work related reoutine, where we find 
+##some more intensity activity in little a free time that the employee can made
+##some sports. In the other hand, at weekend we can see better distribution of
+##effort along the time
+
+
+
+
+
+
+
+
+
+
+
+
+
+
